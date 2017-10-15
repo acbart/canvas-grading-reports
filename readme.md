@@ -3,6 +3,10 @@ A set of command line utilities for controlling canvas courses.
 
 Be careful using these, as some can damage the course.
 
+# Requirements
+
+Make sure you pip install the requirements.txt file!
+
 # Create Settings
 
 > python build_ta_report.py
