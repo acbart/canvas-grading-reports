@@ -10,6 +10,7 @@ import sys
 import requests
 import requests_cache
 import argparse
+import hashlib
 import csv
 from pprint import pprint
 from datetime import datetime
@@ -50,6 +51,9 @@ def days_between(d1, d2=None):
     else:
         d2 = datetime.strptime(d2, CANVAS_DATE_STRING)
     return abs((d2 - d1).days)
+    
+def seconds_to_days(time):
+    return time/60./60/24
 
 today = time.strftime("%m-%d")
 log_path = 'reports/'+COURSE+'_report_{}.html'.format(today)
@@ -116,8 +120,15 @@ groups = get('groups', all=True, course=COURSE)
 groups = [g for g in groups if g['name'] in known_groups]
 # Download users
 print("Downloading users")
-users = get('users', all=True, course=COURSE)
+users = get('users', all=True, course=COURSE,
+            data={'enrollment_type[]': 'student',
+                  'enrollment_state[]': ['active', 'invited', 'rejected', 
+                                         'completed', 'inactive']})
 user_lookup = {u['id']: u for u in users}
+get_user_id = lambda u: u['id']
+student_index = {u['id']: i
+                 for i, u in enumerate(sorted(users, key=get_user_id))}
+log(len(users), "students")log(
 # Download mapping
 print("Downloading group/user mapping")
 group_users = {}
@@ -136,17 +147,24 @@ print("Downloading assignments")
 assignments = get('assignments', all=True, data={
     'include[]': ['all_dates', 'overrides']
 }, course=COURSE)
+assignments = [a for a in assignments if a['needs_grading_count']]
 assignment_lookup = {a['id']: a for a in assignments}
-log(len(assignments), "overall assignments")
+log(len(assignments), "ungraded assignments")
+# Download assignment groups
+print("Downloading assignment groups")
+assignment_groups = {a['id']: a for a in get('assignment_groups', all=True)}
+log(len(assignment_groups), "overall assignment groups")
 # Download submissions
 print("Downloading submissions")
 submissions = get('students/submissions', all=True, data={
     'student_ids[]': 'all',
+    # TODO: Speed hack to skip graded assignments
+    'assignment_ids[]': list(assignment_lookup.keys()),
     'include[]': ['visibility']
 }, course=COURSE)
 log(len(submissions), "possible submissions")
 
-print("Processing Data")
+log("Processing Data")
 # Find ungraded for each TA
 'workflow_state'
 'seconds_late'
@@ -156,6 +174,7 @@ print("Processing Data")
 ta_data = {}
 for ta in tas:
     ta_data[ta] = {
+        'students': set(),
         'ungradeds': 0,
         'ungraded links': [],
         'graded': 0,
@@ -164,39 +183,51 @@ for ta in tas:
         'ungrade delays': [],
         'grade delays': []
     }
-SPEED_GRADER_URL = 'https://vt.instructure.com/courses/{course_id}/gradebook/speed_grader?assignment_id={assignment_id}#%7B%22student_id%22%3A%22{user_id}%22%7D'
+SPEED_GRADER_URL = (get_setting('canvas-base-url')
+                    +'courses/{course_id}/gradebook/'
+                    +'speed_grader?assignment_id={assignment_id}'
+                    +'#%7B%22student_id%22%3A%22{user_id}%22%7D')
 all_ungraded = 0
+students_lateness = defaultdict(list)
+high_priority = 0
 for submission in submissions:
+    # Assignment info
+    assignment_id = submission['assignment_id']
+    if assignment_id not in assignment_lookup:
+        # Somehow, found an invalid assignment
+        log("Invalid assignment ID:", assignment_id)
+        continue
+    assignment = assignment_lookup[assignment_id]
+    assignment_name = assignment['name']
+    due_at = assignment['due_at']
+    # Skip attendance
+    if assignment_name == "Roll Call Attendance":
+        continue
+    
+    # Submission info
     grade_delay = 0
     late = submission['late']
     graded_at = submission['graded_at']
     submitted_at = submission['submitted_at']
     missing = submission['missing']
     user_id = submission['user_id']
-    if user_id not in user_ta_lookup:
+    if user_id not in user_lookup:
         continue
     user_name = user_lookup[user_id]['name']
+    workflow_state = submission['workflow_state']
     grade = submission['grade']
     grader_id = submission['grader_id']
-    if grader_id and grader_id <= 0:
+    if grader_id and grader_id <= 0 and workflow_state == "graded":
         continue
     seconds_late = submission['seconds_late']
-    assignment_id = submission['assignment_id']
-    if assignment_id not in assignment_lookup:
-        continue
-    assignment = assignment_lookup[assignment_id]
-    assignment_name = assignment['name']
-    if assignment_name == "Roll Call Attendance":
-        continue
-    #if user_id == 15866 and assignment_id==270590:
-    #    pprint(submission)
     speedgrader_url = SPEED_GRADER_URL.format(assignment_id=assignment_id, user_id=user_id, course_id=course_id)
     clean_url = "<a href='{}' target='_blank'>{} for {}</a>".format(speedgrader_url, assignment_name, user_name)
+    students_lateness[user_id].append(seconds_to_days(seconds_late))
     ta = user_ta_lookup[user_id]
     if late:
         ta_data[ta]['lates'] += 1
         ta_data[ta]['late durations'].append(seconds_late/60./60/24)
-        if grade:
+        if workflow_state == "graded":
             #Submitted late, graded
             grade_delay = days_between(graded_at, submitted_at)
             ta_data[ta]['grade delays'].append(grade_delay)
@@ -205,36 +236,47 @@ for submission in submissions:
             #Submitted late, not graded yet
             ta_data[ta]['ungradeds'] += 1
             all_ungraded += 1
-            ta_data[ta]['ungraded links'].append(clean_url)
             grade_delay = days_between(submitted_at)
+            very_late = grade_delay >= 7
+            ta_data[ta]['ungraded links'].append((due_at, very_late, clean_url))
+            if very_late:
+                high_priority += 1
             ta_data[ta]['ungrade delays'].append(grade_delay)
+        ta_data[ta]['students'].add(user_id)
     elif missing:
         #Not due yet, not yet submitted
         pass
-    elif submitted_at and grade:
+    elif submitted_at and workflow_state == "graded":
         #Submitted early, graded
         grade_delay = days_between(graded_at, submitted_at)
         ta_data[ta]['grade delays'].append(grade_delay)
         ta_data[ta]['graded'] += 1
+        ta_data[ta]['students'].add(user_id)
     elif submitted_at:
         #Submitted early, not graded yet
         ta_data[ta]['ungradeds'] += 1
         all_ungraded += 1
-        ta_data[ta]['ungraded links'].append(clean_url)
         grade_delay = days_between(submitted_at)
+        very_late = grade_delay >= 7
+        ta_data[ta]['ungraded links'].append((due_at, very_late, clean_url))
+        if very_late:
+            high_priority += 1
         ta_data[ta]['ungrade delays'].append(grade_delay)
         
-log(all_ungraded, "still ungraded")
+log(all_ungraded, "submissions still ungraded")
+log(high_priority, "overdue for grading (>=7 days)")
 log_file.write("</div>")
 
 ta_rename = {}
 
 ungraded_counts = {ta_rename.get(ta, ta): ta_data[ta]['ungradeds'] for ta in ta_data}
 df = pd.DataFrame.from_dict(ungraded_counts, orient='index')
+df.sort_values(by=0, inplace=True)
 df.plot.barh(legend=False, )
 plt.xlabel("Number of Ungraded Assignments")
 plt.title("Number of Ungraded Assignments per TA")
-log_plot((7, 4))
+plt.xticks(rotation=45)
+log_plot((7, 5))
 plt.clf()
 for column, label in [('ungrade delays', 'Delay in Ungraded Assignments'),
                       ('grade delays', 'Delay in Graded Assignments'),
@@ -243,34 +285,59 @@ for column, label in [('ungrade delays', 'Delay in Ungraded Assignments'),
     for ta, ta_item in ta_data.items():
         for grade in ta_item[column]:
             tidy_data.append((ta_rename.get(ta, ta), grade))
+    if not tidy_data:
+        continue
     df = pd.DataFrame(tidy_data, columns=['TA', label])
     ax = df.boxplot(column=label, by='TA')
     plt.ylabel("Days")
+    plt.xticks(rotation=45)
     ax.get_figure().suptitle("")
-    log_plot((7, 3))
+    log_plot((7, 4))
     plt.clf()
+    
+def color_patches(bins, patches):
+    for c, p in zip(bins, patches):
+        if c < 7:
+            plt.setp(p, 'facecolor', 'cornflowerblue')
+        elif c >= 7 and c < 14:
+            plt.setp(p, 'facecolor', 'blue')
+        else:
+            plt.setp(p, 'facecolor', 'darkblue')
 
 for ta in sorted(tas):
     log_file.write("<h2>{}</h2>\n".format(ta))
     #
     log_file.write("<div style='margin-left:10px'>")
+    log("Students:", len(ta_data[ta]['students']))
     log("Submitted Late:", ta_data[ta]['lates'])
     log("Graded:", ta_data[ta]['graded'])
     log("Ungraded:", ta_data[ta]['ungradeds'])
+    log("Overdue (>=7 days):", len([delay
+                                    for delay in ta_data[ta]['ungrade delays']
+                                    if delay >= 7]))
+
     log("Ungraded Assignments:")
     # Links
     log_file.write('<ul>\n')
-    for url in natsorted(ta_data[ta]['ungraded links']):
-        log_file.write('<li>{}</li>\n'.format(url))
+    sort_subs = lambda r: (-r[1] if r[1] is not None else 0, 
+                           r[0] if r[0] is not None else 0)
+    ungraded = ta_data[ta]['ungraded links']
+    for aname, is_high_priority, url in natsorted(ungraded, key=sort_subs):
+        if is_high_priority:
+            log_file.write('<li><em>{}</em></li>\n'.format(url))
+        else:
+            log_file.write('<li>{}</li>\n'.format(url))
     log_file.write('</ul>\n')
     # Distribution
-    plt.hist(ta_data[ta]['grade delays'])
+    n, bins, patches = plt.hist(ta_data[ta]['grade delays'])
+    color_patches(bins, patches)
     plt.title("Graded Assignments Delay")
     plt.xlabel("Days Late")
     plt.ylabel("Submissions")
     log_plot()
     plt.clf()
-    plt.hist(ta_data[ta]['ungrade delays'], color='red')
+    n, bins, patches = plt.hist(ta_data[ta]['ungrade delays'])
+    color_patches(bins, patches)
     plt.title("Ungraded Assignments Delay")
     plt.xlabel("Days Late")
     plt.ylabel("Submissions")
