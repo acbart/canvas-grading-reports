@@ -3,7 +3,13 @@ import requests
 import yaml
 import os
 import sys
+import time
 from datetime import datetime
+
+try:
+    from tqdm import tqdm
+except:
+    tqdm = None
 
 SETTINGS_PATH = 'settings.yaml'
 CACHE_PATH = 'cache.json'
@@ -43,7 +49,8 @@ def get_setting(setting, course=None):
         return defaults[setting]
     raise Exception("Course not found in settings.yaml: {course}".format(course=course))
     
-def _canvas_request(verb, command, course, data, all, params):
+def _canvas_request(verb, command, course, data, all, params, result=list,
+                    estimated=None):
     try:
         if data is None:
             data = {}
@@ -60,31 +67,68 @@ def _canvas_request(verb, command, course, data, all, params):
         if all:
             data['per_page'] = 100
             final_result = []
+            if tqdm is not None and estimated is not None:
+                pbar = tqdm(total=estimated/100)
             while True:
+                if tqdm is not None and estimated is not None:
+                    pbar.update(1)
                 response = verb(next_url, data=data, params=params)
-                final_result += response.json()
+                if result == list:
+                    final_result += response.json()
+                elif result == dict:
+                    final_result.append(response.json())
+                else:
+                    final_result = response
                 if 'next' in response.links:
                     next_url = response.links['next']['url']
                 else:
+                    if tqdm is not None and estimated is not None:
+                        pbar.close()
                     return final_result
         else:
             response = verb(next_url, data=data, params=params)
-            return response.json()
+            if result == list:
+                return response.json()
+            elif result == dict:
+                return [response.json()]
     except json.decoder.JSONDecodeError:
         raise Exception("{}\n{}".format(response, next_url))
     
-def get(command, course='default', data=None, all=False, params=None):
-    return _canvas_request(requests.get, command, course, data, all, params)
+def get(command, course='default', data=None, all=False, params=None, result=list, estimated=None):
+    return _canvas_request(requests.get, command, course, data, all, params, 
+                           result=result, estimated=estimated)
     
-def post(command, course='default', data=None, all=False, params=None):
-    return _canvas_request(requests.post, command, course, data, all, params)
+def post(command, course='default', data=None, all=False, params=None, result=list, estimated=None):
+    return _canvas_request(requests.post, command, course, data, all, params, 
+                           result=result, estimated=estimated)
     
-def put(command, course='default', data=None, all=False, params=None):
-    return _canvas_request(requests.put, command, course, data, all, params)
+def put(command, course='default', data=None, all=False, params=None, result=list, estimated=None):
+    return _canvas_request(requests.put, command, course, data, all, params, 
+                           result=result, estimated=estimated)
     
-def delete(command, course='default', data=None, all=False, params=None):
-    return _canvas_request(requests.delete, command, course, data, all, params)
+def delete(command, course='default', data=None, all=False, params=None, result=list, estimated=None):
+    return _canvas_request(requests.delete, command, course, data, all, params, 
+                           result=result, estimated=estimated)
 
+def progress_loop(progress_id, DELAY=3):
+    while True:
+        result = _canvas_request(requests.get, 'progress/{}'.format(progress_id), None, None, False, None, dict)[0]
+        if result['workflow_state'] == 'completed':
+            return True
+        elif result['workflow_state'] == 'failed':
+            return False
+        else:
+            print(result['workflow_state'], result['message'], str(int(round(result['completion']*10))/10)+"%")
+            time.sleep(DELAY)
+            
+def download_file(url, destination):
+    data = {'access_token': get_setting('canvas-token')}
+    r = requests.get(url)
+    f = open(destination, 'wb')
+    for chunk in r.iter_content(chunk_size=512 * 1024): 
+        if chunk: # filter out keep-alive new chunks
+            f.write(chunk)
+    f.close()
 
 CANVAS_DATE_STRING = "%Y-%m-%dT%H:%M:%SZ"
 def from_canvas_date(d1):

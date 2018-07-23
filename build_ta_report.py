@@ -128,7 +128,7 @@ user_lookup = {u['id']: u for u in users}
 get_user_id = lambda u: u['id']
 student_index = {u['id']: i
                  for i, u in enumerate(sorted(users, key=get_user_id))}
-log(len(users), "students")log(
+log(len(users), "students")
 # Download mapping
 print("Downloading group/user mapping")
 group_users = {}
@@ -147,7 +147,7 @@ print("Downloading assignments")
 assignments = get('assignments', all=True, data={
     'include[]': ['all_dates', 'overrides']
 }, course=COURSE)
-assignments = [a for a in assignments if a['needs_grading_count']]
+#assignments = [a for a in assignments if a['needs_grading_count']]
 assignment_lookup = {a['id']: a for a in assignments}
 log(len(assignments), "ungraded assignments")
 # Download assignment groups
@@ -156,12 +156,14 @@ assignment_groups = {a['id']: a for a in get('assignment_groups', all=True)}
 log(len(assignment_groups), "overall assignment groups")
 # Download submissions
 print("Downloading submissions")
+estimated = len(assignments) * len(users)
+log("Estimating", estimated, "total")
 submissions = get('students/submissions', all=True, data={
     'student_ids[]': 'all',
     # TODO: Speed hack to skip graded assignments
     'assignment_ids[]': list(assignment_lookup.keys()),
     'include[]': ['visibility']
-}, course=COURSE)
+}, course=COURSE, estimated = estimated)
 log(len(submissions), "possible submissions")
 
 log("Processing Data")
