@@ -2,7 +2,7 @@ settings.yaml
 reports/
 tas/
 quizzes/
-csv_assignments/
+dates/
 
 *.sqlite
 
