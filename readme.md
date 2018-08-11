@@ -11,7 +11,11 @@ Make sure you pip install the requirements.txt file!
 
 > python build_ta_report.py
 
-The first time the script is run, a new `settings.yaml` file is created. You will need to add three things to the file:
+OR
+
+> python edit_dates.py
+
+The first time one of the scripts is run, a new `settings.yaml` file is created. You will need to add three things to the file:
 
 * First, obtain an API key for Canvas. Set it to the `defaults` -> `canvas-token` keys. https://community.canvaslms.com/docs/DOC-10806-4214724194
 * Next, create a new `course` (e.g., `f17_python`) and set the `id` field to the course ID and the `ta_map` field to the relative path to the TA Map YAML file for the course.
@@ -26,3 +30,19 @@ To generate a new report, simply run the script from the command line. An HTML a
 You can also optionally specify a specific course label.
 
 > python build_ta_report.py f17_python
+
+# Edit Dates
+
+> python edit_dates.py -h
+
+Currently, only the `import` and `export` commands work. 
+
+The format for the date strings should be:
+
+> MM/DD/YY HH:MMpm
+
+For example
+
+> 8/11/18 1:00m
+
+Because of time zones, life can be difficult. I've never quite figured out if I got DST correct either.
