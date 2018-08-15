@@ -30,6 +30,8 @@ from canvas_tools import yaml_load
 
 from html_tools import strip_tags, to_percent
 
+from quiz_question_types import QUESTION_TYPES, DefaultQuestionType
+
 def clean_name(filename):
     return "".join([c for c in filename
                     if c.isalpha() or c.isdigit() 
@@ -43,6 +45,14 @@ quiet = True
 def log(*args):
     if not quiet:
         print(*args)
+        
+def download_all_grades(course):
+    enrollments = get('enrollments', course=course,
+                      data={'type[]': 'StudentEnrollment',
+                            'state[]': ['active','completed']},
+                      all=True)
+    return {str(e['user_id']): e['grades']['current_score']
+            for e in enrollments}
 
 #multiple_dropdowns_question
 def download_quiz_report(quiz_id, course):
@@ -52,7 +62,7 @@ def download_quiz_report(quiz_id, course):
                       'quiz_report[includes_all_versions]': True,
                       'include': ['file', 'progress']})
 
-def download_quiz(quiz_id, type, filename, course, ignore):
+def download_quiz(quiz_id, format, filename, course, ignore):
     report = download_quiz_report(quiz_id, course)
     if 'errors' in report:
         log("Failure:", report['errors'])
@@ -72,22 +82,64 @@ def download_quiz(quiz_id, type, filename, course, ignore):
         os.makedirs(path, exist_ok=True)
         path += display_name
     download_file(report['file']['url'], path)
-    print(title)
+    return process_quiz(quiz_id, format, path, course)
 
-def download_all_quizzes(type, filename, course, ignore):
+def download_all_quizzes(format, filename, course, ignore):
     quizzes = get('quizzes', all=True, course=course)
-    return [download_quiz(quiz['id'], type, filename, course, ignore)
+    return [download_quiz(quiz['id'], format, filename, course, ignore)
             for quiz in quizzes]
+            
+def process_quiz(quiz_id, format, path, course):
+    print(quiz_id)
+    # Download overall course grades for course-level discrimation
+    course_scores = download_all_grades(course)
+    # Process quiz data
+    df = pd.read_csv(path, dtype=str)
+    anonymous = 'id' not in df.columns
+    FIRST_COLUMN = 5 if anonymous else 8
+    # Grab out the actual columns of data
+    df_submissions_subtable = df.iloc[:,FIRST_COLUMN:-3]
+    attempts = df.iloc[:,FIRST_COLUMN-1].map(int)
+    user_ids = None if anonymous else df.iloc[:,1]
+    overall_score = df.iloc[:,-1].map(float)
+    # Question IDs are stored in alternating columns as "ID: Text"
+    question_ids = [x.split(':')[0] for x in
+                    df_submissions_subtable.columns[::2]]
+    for i, question_id in enumerate(question_ids):
+        # Actual student submission is in alternating columns
+        submissions = df_submissions_subtable.iloc[:, i*2]
+        scores = df_submissions_subtable.iloc[:, 1+i*2]
+        question = get('quizzes/{quiz}/questions/{qid}'
+                       .format(quiz=quiz_id, qid=question_id),
+                       course=course)
+        question_type = question['question_type']
+        processor = QUESTION_TYPES.get(question_type, DefaultQuestionType)
+        q = processor(question, submissions, attempts, user_ids,
+                      scores, overall_score, course_scores)
+        q.analyze()
+        if format == 'text':
+            print(q.to_text().encode("ascii", errors='replace')
+                  .decode())
+        elif format == 'html':
+            q.to_html()
+        elif format == 'pdf':
+            q.to_html()
+        elif format == 'json':
+            q.to_json()
+    return True
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Analyze quizzes')
     parser.add_argument('--course', '-c', help='The specific course to perform operations on. Should be a valid course label, not the ID')
     parser.add_argument('--id', '-i', help='The specific quiz ID to analyze. If not specified, all quizzes are used', default=None)
-    parser.add_argument('--type', '-t', help='What format to generate the result into.', choices=['html', 'json', 'raw', 'pdf'], default='raw')
+    parser.add_argument('--format', '-t', help='What format to generate the result into.', choices=['html', 'json', 'raw', 'pdf', 'text'], default='raw')
     parser.add_argument('--file', '-f', help='The path to the quiz folder. Otherwise, a default folder will be chosen based on the course name (For a course named CS1014, generate "quizzes/CS1014/").', default=None)
     parser.add_argument('--ignore', '-x', help='Ignores any cached files in processing the quiz results', action='store_true', default=False)
     parser.add_argument('--quiet', '-q', help='Silences the output', action='store_true', default=False)
     args = parser.parse_args()
+    
+    if not args.ignore:
+        requests_cache.install_cache('quizzes_cache')
     
     # Override default course
     if args.course:
@@ -102,10 +154,10 @@ if __name__ == "__main__":
 
     # Handle the dates exporting
     if args.id is None:
-        successes = download_all_quizzes(args.type, args.file, 
+        successes = download_all_quizzes(args.format, args.file, 
                                          args.course, args.ignore)
-        log("Finished", len(success), "reports.")
-        log(sum(successes), "were successful.")
+        log("Finished", len(successes), "reports.")
+        log(sum(map(bool, successes)), "were successful.")
     else:
-        download_quiz(args.id, args.type, args.file, args.course,
+        download_quiz(args.id, args.format, args.file, args.course,
                       args.ignore)

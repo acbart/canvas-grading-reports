@@ -1,4 +1,5 @@
 from html.parser import HTMLParser
+from math import isnan
 
 class MLStripper(HTMLParser):
     def __init__(self):
@@ -18,4 +19,6 @@ def strip_tags(html):
     return s.get_data()
     
 def to_percent(a_value):
+    if isnan(a_value):
+        return "NaN%"
     return str(int(round(a_value*1000))/10)+"%"
