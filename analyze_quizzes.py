@@ -97,6 +97,8 @@ def process_quiz(quiz_id, format, path, course):
     df = pd.read_csv(path, dtype=str)
     anonymous = 'id' not in df.columns
     FIRST_COLUMN = 5 if anonymous else 8
+    # Grab the header as a single row to extract point columns
+    header = pd.read_csv(path, nrows=1, header=None)
     # Grab out the actual columns of data
     df_submissions_subtable = df.iloc[:,FIRST_COLUMN:-3]
     attempts = df.iloc[:,FIRST_COLUMN-1].map(int)
@@ -108,14 +110,15 @@ def process_quiz(quiz_id, format, path, course):
     for i, question_id in enumerate(question_ids):
         # Actual student submission is in alternating columns
         submissions = df_submissions_subtable.iloc[:, i*2]
-        scores = df_submissions_subtable.iloc[:, 1+i*2]
+        scores = df_submissions_subtable.iloc[:, 1+i*2].map(float)
+        max_score = float(header.iloc[0,FIRST_COLUMN+1+i*2])
         question = get('quizzes/{quiz}/questions/{qid}'
                        .format(quiz=quiz_id, qid=question_id),
                        course=course)
         question_type = question['question_type']
         processor = QUESTION_TYPES.get(question_type, DefaultQuestionType)
         q = processor(question, submissions, attempts, user_ids,
-                      scores, overall_score, course_scores)
+                      scores, overall_score, course_scores, max_score)
         q.analyze()
         if format == 'text':
             print(q.to_text().encode("ascii", errors='replace')

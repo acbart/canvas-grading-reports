@@ -21,11 +21,11 @@ def split_on_commas(text):
     return re.split(r'(?<!\\),', text)
 
 def sort_by_value_count(pair):
-    value, (count, multiples, initials, overall, course_o) = pair
+    value, (count, multiples, initials) = pair
     return value, -count
 
 def sort_by_count(pair):
-    value, (count, multiples, initials, overall, course_o) = pair
+    value, (count, multiples, initials) = pair
     return -count
     
 '''
@@ -41,7 +41,8 @@ class QuizQuestionType:
         return sort_by_value_count(value)
     
     def __init__(self, question, submissions, attempts, user_ids,
-                 submission_scores, quiz_scores, course_scores):
+                 submission_scores, quiz_scores, course_scores,
+                 max_score):
         # Critical Information
         self.question = question
         self.submissions = submissions
@@ -50,9 +51,11 @@ class QuizQuestionType:
             user_ids = ['Anon '+str(i) for i in 
                         range(len(submissions))]
         self.user_ids = user_ids
-        self.uasq = zip(user_ids, attempts, submissions, quiz_scores, submission_scores)
+        self.uas = zip(user_ids, attempts, submissions)
+        self.scores = list(zip(user_ids, attempts, submission_scores, 
+                               quiz_scores))
         self.course_scores = course_scores
-        self.submission_scores = submission_scores
+        self.max_score = max_score
         # Decorative information
         self.question_name = question['question_name']
         self.points_possible = question['points_possible']
@@ -75,7 +78,7 @@ class QuizQuestionType:
                 "\t"+str(self.points_possible)+" points", 
                 indent(strip_tags(self.text.strip()), "\t")]
         body.append("\t---Discrimination---")
-        quiz, course = self.calculate_discrimation()
+        quiz, course = self.calculate_discrimination()
         body.append("\tQuiz: {}".format(
             to_percent(quiz)
         ))
@@ -107,8 +110,7 @@ class QuizQuestionType:
                                     key=self.key_occurrences)
         self.quiz_discrimination = []
         self.course_discrimiation = []
-        for key, (count, initials, finals, quiz_overalls,
-            course_overalls) in sorted_occurrences:
+        for key, (count, initials, finals) in sorted_occurrences:
             is_correct = correctness(key)
             o_score = count/self.total_submissions
             i_score = len(initials)/self.total_students
@@ -116,10 +118,6 @@ class QuizQuestionType:
             self.results.append(
                 (key, is_correct, o_score, i_score, f_score)
             )
-            for score in quiz_overalls:
-                self.quiz_discrimination.append((int(is_correct), score))
-            for score in course_overalls:
-                self.course_discrimiation.append((int(is_correct), score))
     
     def submission_keys(self, submission):
         '''
@@ -130,36 +128,48 @@ class QuizQuestionType:
         return [clean_text(submission)]
     
     def count_occurrences(self):
-        occurrences = defaultdict(lambda: [0, set(), set(), [], []])
-        for (user_id, attempt, submission, overall,
-             submission_score) in self.uasq:
+        occurrences = defaultdict(lambda: [0, set(), set()])
+        for (user_id, attempt, submission) in self.uas:
             submission = fill_nan_str(submission)
             for key in self.submission_keys(submission):
-                (count, initials, finals, 
-                 quiz_overalls, course_overalls) = occurrences[key]
+                count, initials, finals = occurrences[key]
                 occurrences[key][0] += 1
                 if attempt == 1:
                     initials.add(user_id)
-                    quiz_overalls.append(overall)
-                    if user_id in self.course_scores:
-                        course_overalls.append(self.course_scores[user_id])
                 if self.final_submission[user_id] == attempt:
                     finals.add(user_id)                
         return occurrences
     
-    def calculate_discrimation(self):
-        quiz, _ = pearsonr(*zip(*self.quiz_discrimination))
-        course, _ = pearsonr(*zip(*self.course_discrimiation))
+    def calculate_discrimination(self):
+        initial_quizzes = []
+        initial_courses = []
+        for user_id, attempt, submission, quiz in self.scores:
+            if attempt == 1:
+                initial_quizzes.append((submission, quiz))
+                if user_id in self.course_scores:
+                    course = self.course_scores[user_id]
+                    initial_courses.append((submission, course))
+        quiz, _ = pearsonr(*zip(*initial_quizzes))
+        if initial_courses:
+            course, _ = pearsonr(*zip(*initial_courses))
+        else:
+            course = float('nan')
         return quiz, course
     
     def calculate_difficulty(self):
-        o_difficulty, i_difficulty, f_difficulty = 0, 0, 0
-        for answer, correct, o, i, f in self.results:
-            if correct:
-                o_difficulty += o
-                i_difficulty += i
-                f_difficulty += f
-        return o_difficulty, i_difficulty, f_difficulty
+        total = 0
+        initial = 0
+        final = 0
+        for user_id, attempt, submission, quiz in self.scores:
+            total += submission
+            if attempt == 1:
+                initial += submission
+            elif self.final_submission[user_id] == attempt:
+                final += submission
+        o_score = total/(self.total_submissions*self.max_score)
+        i_score = initial/(self.total_students*self.max_score)
+        f_score = final/(self.total_students*self.max_score)
+        return o_score, i_score, f_score
 
 class ShortAnswerQuestion(QuizQuestionType):
     name = "Short Answer Question"
@@ -198,6 +208,19 @@ class MatchingQuestions(QuizQuestionType):
                 continue
             key, value = map(clean_text, answer.split("=>"))
             yield (key, value)
+    
+    def to_text_answers(self):
+        body = []
+        previous_label = None
+        for (key, value), correct, o, i, f in self.results:
+            if previous_label != key:
+                body.append("\t"+key)
+            body.append("\t\t{},\t{},\t{}:{}\t".format(
+                *map(to_percent, (o, i, f)),
+                ('*' if correct else '')
+            )+strip_tags(value))
+            previous_label = key
+        return body
 
 class FillInMultipleBlanks(QuizQuestionType):
     name = "Fill in Multiple Blanks"
@@ -271,9 +294,7 @@ class MultipleAnswersQuestion(QuizQuestionType):
         def correctness(value):
             return value in answers
         self.score_occurrences(occurrences, correctness)
-
-    def calculate_difficulty(self):
-        return None, None, None
+    
         
 class MultipleDropDownsQuestion(FillInMultipleBlanks):
     name = "Multiple Drop-Down Question"
@@ -289,12 +310,25 @@ class EssayQuestion(QuizQuestionType):
     
     def to_text(self):
         return self.name
+
+class TextOnlyQuestion(QuizQuestionType):
+    def analyze(self):
+        self.results = []
+    
+    def to_text(self):
+        return self.name
     
 class DefaultQuestionType(QuizQuestionType):
     def calculate_difficulty(self):
         return 0,0,0
-    def calculate_discrimation(self):
+    def calculate_discrimination(self):
         return 0,0
+    
+    def analyze(self):
+        self.results = []
+    
+    def to_text(self):
+        return self.name
 
 QUESTION_TYPES = {
     'fill_in_multiple_blanks_question': FillInMultipleBlanks,
@@ -305,4 +339,5 @@ QUESTION_TYPES = {
     'true_false_question': TrueFalseQuestion,
     'multiple_dropdowns_question': MultipleDropDownsQuestion,
     'essay_question': EssayQuestion,
+    'text_only_question': TextOnlyQuestion,
 }
