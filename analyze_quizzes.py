@@ -81,14 +81,33 @@ def download_quiz(quiz_id, format, filename, course, ignore):
         path = 'quizzes/{}/'.format(course)
         os.makedirs(path, exist_ok=True)
         path += display_name
+    else:
+        path = filename
     download_file(report['file']['url'], path)
     return process_quiz(quiz_id, format, path, course)
 
 def download_all_quizzes(format, filename, course, ignore):
     quizzes = get('quizzes', all=True, course=course)
-    return [download_quiz(quiz['id'], format, filename, course, ignore)
+    paths = [download_quiz(quiz['id'], format, filename, course, ignore)
             for quiz in quizzes]
-            
+    if format == 'json':
+        all_data = []
+        for path in paths:
+            with open(path) as inp:
+                all_data += json.load(inp)
+        if filename is None:
+            path = 'quizzes/{}/'.format(course)
+            os.makedirs(path, exist_ok=True)
+            path += 'combined.json'
+        else:
+            path = filename+'/combined.json'
+        with open(path, 'w') as out:
+            json.dump(all_data, out)
+        return paths
+
+def change_extension(path, new_extension):
+    return path[:-3]+new_extension
+
 def process_quiz(quiz_id, format, path, course):
     print(quiz_id)
     # Download overall course grades for course-level discrimation
@@ -107,6 +126,7 @@ def process_quiz(quiz_id, format, path, course):
     # Question IDs are stored in alternating columns as "ID: Text"
     question_ids = [x.split(':')[0] for x in
                     df_submissions_subtable.columns[::2]]
+    results = []
     for i, question_id in enumerate(question_ids):
         # Actual student submission is in alternating columns
         submissions = df_submissions_subtable.iloc[:, i*2]
@@ -118,7 +138,8 @@ def process_quiz(quiz_id, format, path, course):
         question_type = question['question_type']
         processor = QUESTION_TYPES.get(question_type, DefaultQuestionType)
         q = processor(question, submissions, attempts, user_ids,
-                      scores, overall_score, course_scores, max_score)
+                      scores, overall_score, course_scores, max_score,
+                      anonymous, path)
         q.analyze()
         if format == 'text':
             print(q.to_text().encode("ascii", errors='replace')
@@ -128,7 +149,12 @@ def process_quiz(quiz_id, format, path, course):
         elif format == 'pdf':
             q.to_html()
         elif format == 'json':
-            q.to_json()
+            results.append(q.to_json())
+    if format == 'json':
+        json_path = change_extension(path, 'json')
+        with open(json_path, 'w') as out:
+            json.dump(results, out, indent=2)
+        return json_path
     return True
 
 if __name__ == "__main__":

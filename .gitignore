@@ -1,4 +1,7 @@
 settings.yaml
+vt-settings.yaml
+*-settings.yaml
+groups/
 reports/
 tas/
 quizzes/

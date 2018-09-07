@@ -42,7 +42,7 @@ class QuizQuestionType:
     
     def __init__(self, question, submissions, attempts, user_ids,
                  submission_scores, quiz_scores, course_scores,
-                 max_score):
+                 max_score, anonymous, path):
         # Critical Information
         self.question = question
         self.submissions = submissions
@@ -56,6 +56,8 @@ class QuizQuestionType:
                                quiz_scores))
         self.course_scores = course_scores
         self.max_score = max_score
+        self.anonymous = anonymous
+        self.path = path
         # Decorative information
         self.question_name = question['question_name']
         self.points_possible = question['points_possible']
@@ -71,6 +73,27 @@ class QuizQuestionType:
     
     def analyze(self):
         pass
+    
+    def to_json(self):
+        quiz_disc, course_disc = self.calculate_discrimination()
+        o_diff, i_diff, f_diff = self.calculate_difficulty()
+        return {
+            'question_name': self.question_name,
+            'name': self.name,
+            'path': self.path,
+            'anonymous': self.anonymous,
+            'points_possible': self.points_possible,
+            'text': self.text,
+            'discrimination': {
+                'quiz': quiz_disc, 
+                'course': course_disc
+            },
+            'difficulty': {
+                'overall': o_diff,
+                'initial': i_diff,
+                'final': f_diff
+            }
+        }
     
     def to_text(self):
         body = [self.question_name, 
@@ -157,6 +180,8 @@ class QuizQuestionType:
         return quiz, course
     
     def calculate_difficulty(self):
+        if not self.max_score:
+            return 0, 0, 0
         total = 0
         initial = 0
         final = 0
@@ -185,6 +210,9 @@ class ShortAnswerQuestion(QuizQuestionType):
                              else strip_tags(answer['html'])
                              for answer in self.question['answers'])
         self.score_occurrences(occurrences, correctness)
+    
+    def to_question(self):
+        pass
         
 class MatchingQuestions(QuizQuestionType):
     name = "Matching Question"

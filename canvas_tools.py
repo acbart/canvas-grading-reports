@@ -1,4 +1,5 @@
 import json
+import simplejson
 import requests
 import yaml
 import os
@@ -73,6 +74,8 @@ def _canvas_request(verb, command, course, data, all, params, result=list,
                 if tqdm is not None and estimated is not None:
                     pbar.update(1)
                 response = verb(next_url, data=data, params=params)
+                if 'error' in response.json():
+                    raise(Exception(response.text))
                 if result == list:
                     final_result += response.json()
                 elif result == dict:
@@ -91,7 +94,7 @@ def _canvas_request(verb, command, course, data, all, params, result=list,
                 return response.json()
             elif result == dict:
                 return [response.json()]
-    except json.decoder.JSONDecodeError:
+    except simplejson.decoder.JSONDecodeError:
         raise Exception("{}\n{}".format(response, next_url))
     
 def get(command, course='default', data=None, all=False, params=None, result=list, estimated=None):

@@ -32,7 +32,7 @@ from canvas_tools import get_setting, courses
 
 from canvas_tools import yaml_load
 
-#requests_cache.install_cache('canvas_requests')
+requests_cache.install_cache('canvas_requests')
 
 plt.style.use('seaborn-darkgrid')
 matplotlib.rcParams.update({'font.size': 12})
@@ -161,7 +161,7 @@ log("Estimating", estimated, "total")
 submissions = get('students/submissions', all=True, data={
     'student_ids[]': 'all',
     # TODO: Speed hack to skip graded assignments
-    'assignment_ids[]': list(assignment_lookup.keys()),
+    'assignment_ids[]': ','.join(map(str, assignment_lookup.keys())),
     'include[]': ['visibility']
 }, course=COURSE, estimated = estimated)
 log(len(submissions), "possible submissions")
@@ -225,6 +225,9 @@ for submission in submissions:
     speedgrader_url = SPEED_GRADER_URL.format(assignment_id=assignment_id, user_id=user_id, course_id=course_id)
     clean_url = "<a href='{}' target='_blank'>{} for {}</a>".format(speedgrader_url, assignment_name, user_name)
     students_lateness[user_id].append(seconds_to_days(seconds_late))
+    if user_id not in user_ta_lookup:
+        # People without TAs
+        continue
     ta = user_ta_lookup[user_id]
     if late:
         ta_data[ta]['lates'] += 1
