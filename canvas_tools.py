@@ -12,8 +12,9 @@ try:
 except:
     tqdm = None
 
-SETTINGS_PATH = 'settings.yaml'
-CACHE_PATH = 'cache.json'
+def yaml_load(path):
+    with open(path) as settings_file:
+        return yaml.load(settings_file)
 
 settings = {
     'courses': {},
@@ -21,25 +22,30 @@ settings = {
     'defaults': {},
     'canvas-url': 'https://vt.instructure.com/api/v1/'
 }
+courses = {}
+defaults = {}
+def load_settings(path='settings.yaml', create_if_not_exists=True):
+    global courses, defaults
+    # Create settings file if it doesn't exist
+    if not os.path.exists(path):
+        if create_if_not_exists:
+            with open(path, 'w') as settings_file:
+                yaml.dump(settings, settings_file)
+                print("A settings.yaml file was created. Please add your token and courses.")
+                sys.exit()
+        else:
+            raise Exception("The settings file was not found: "+repr(path))
 
-def yaml_load(path):
-    with open(path) as settings_file:
-        return yaml.load(settings_file)
+    # Load in the settings file
+    new_settings = yaml_load(path)
+    settings.update(new_settings)
 
-# Create settings file if it doesn't exist
-if not os.path.exists(SETTINGS_PATH):
-    with open(SETTINGS_PATH, 'w') as settings_file:
-        yaml.dump(settings, settings_file)
-        print("A settings.yaml file was created. Please add your token and courses.")
-        sys.exit()
-
-# Load in the settings file
-new_settings = yaml_load(SETTINGS_PATH)
-settings.update(new_settings)
-
-# Shortcut to access courses
-courses = settings['courses']
-defaults = settings['defaults']
+    # Shortcut to access courses
+    courses = settings['courses']
+    defaults = settings['defaults']
+    
+def get_courses():
+    return settings['courses']
 
 def get_setting(setting, course=None):
     if course is None:
@@ -114,15 +120,21 @@ def delete(command, course='default', data=None, all=False, params=None, result=
                            result=result, estimated=estimated)
 
 def progress_loop(progress_id, DELAY=3):
+    attempt = 0
     while True:
-        result = _canvas_request(requests.get, 'progress/{}'.format(progress_id), None, None, False, None, dict)[0]
+        result = _canvas_request(requests.get, 'progress/{}'.format(progress_id), 
+                                 None, {'_dummy_counter': attempt}, 
+                                 False, None, dict)[0]
         if result['workflow_state'] == 'completed':
             return True
         elif result['workflow_state'] == 'failed':
             return False
         else:
-            print(result['workflow_state'], result['message'], str(int(round(result['completion']*10))/10)+"%")
-            time.sleep(DELAY)
+            print("In progress:", result['workflow_state'], result['message'], 
+                  str(int(round(result['completion']*10))/10)+"%")
+            if not hasattr(result, 'from_cache') or not result.from_cache:
+                time.sleep(DELAY)
+            attempt += 1
             
 def download_file(url, destination):
     data = {'access_token': get_setting('canvas-token')}
