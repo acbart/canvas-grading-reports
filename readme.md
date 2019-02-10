@@ -35,16 +35,6 @@ courses:
         ta_map: "tas/f18_cisc108_ta_map.yaml"
 ```
 
-# TA Report
-
-To generate a new report, simply run the script from the command line. An HTML and PDF file will be generated in the `reports/` folder. You might need to create that folder if it does not exist.
-
-> python build_ta_report.py
-
-You can also optionally specify a specific course label.
-
-> python build_ta_report.py f17_python
-
 # Edit Dates
 
 > python edit_dates.py -h
@@ -60,3 +50,25 @@ For example
 > 8/11/18 1:00m
 
 Because of time zones, life can be difficult. I've never quite figured out if I got DST correct either.
+
+# TA Report
+
+To generate a new report, run the script from the command line. An HTML and PDF file will be generated in the `reports/` folder. You might need to create that folder if it does not exist.
+
+> python build_ta_report.py
+
+You can also optionally specify a specific course label.
+
+> python build_ta_report.py f17_python
+
+I'll be honest, this is a pretty fragile script, given its complexity.
+
+If you want to associate TAs with specific groups, you'll need to provide the mapping in the yaml file:
+
+```yaml
+Group Name 1: TA A Display Name
+Group Name 2: TA B Display Name
+Group Name 3: TA C Display Name
+```
+
+The group name must match exactly with the group on Canvas, but the TA display name can be whatever you want. Group names must be unique, but the same TA might have multiple groups.
