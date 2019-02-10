@@ -18,6 +18,8 @@ OR
 The first time one of the scripts is run, a new `settings.yaml` file is created. You will need to add three things to the file:
 
 * First, obtain an API key for Canvas. Set it to the `defaults` -> `canvas-token` keys. https://community.canvaslms.com/docs/DOC-10806-4214724194
+* You'll need to make sure the `defaults` -> `canvas-url` is set to the proper API URL for your university (e.g., `"https://udel.instructure.com/api/v1/"`)
+* You'll need to make sure the `defaults` -> `canvas-base-url` is set to the proper Canvas URL for your university (e.g., `"https://udel.instructure.com/"`)
 * Next, create a new `course` (e.g., `f17_python`) and set the `id` field to the course ID and the `ta_map` field to the relative path to the TA Map YAML file for the course.
 * Finally, set the `defaults` -> `course` value to the course you just created.
 
