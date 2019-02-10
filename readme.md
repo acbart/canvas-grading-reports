@@ -17,11 +17,23 @@ OR
 
 The first time one of the scripts is run, a new `settings.yaml` file is created. You will need to add three things to the file:
 
-* First, obtain an API key for Canvas. Set it to the `defaults` -> `canvas-token` keys. https://community.canvaslms.com/docs/DOC-10806-4214724194
+* First, [obtain an API key for Canvas](https://community.canvaslms.com/docs/DOC-10806-4214724194). Set it to the `defaults` -> `canvas-token` keys.
 * You'll need to make sure the `defaults` -> `canvas-url` is set to the proper API URL for your university (e.g., `"https://udel.instructure.com/api/v1/"`)
 * You'll need to make sure the `defaults` -> `canvas-base-url` is set to the proper Canvas URL for your university (e.g., `"https://udel.instructure.com/"`)
-* Next, create a new `course` (e.g., `f17_python`) and set the `id` field to the course ID and the `ta_map` field to the relative path to the TA Map YAML file for the course.
+* Next, create a new `course` (e.g., `f17_python`) and set the `id` field to the course ID and the `ta_map` field to the relative path to the TA Map YAML file for the course. It's okay if you leave a blank string for the `ta_map`, but make sure you provide the `id`! You can find it in the URL when you visit the course page on the Canvas site.
 * Finally, set the `defaults` -> `course` value to the course you just created.
+
+```
+defaults:
+    canvas-token: "SECRET_KEY"
+    canvas-url: "https://udel.instructure.com/api/v1/"
+    canvas-base-url: "https://udel.instructure.com/"
+    course: f18_cisc108
+courses:
+    f18_cisc108:
+        id: 1421509
+        ta_map: "tas/f18_cisc108_ta_map.yaml"
+```
 
 # TA Report
 
