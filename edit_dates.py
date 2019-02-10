@@ -26,7 +26,7 @@ except:
     tqdm = list
 
 from canvas_tools import get, post, put, delete
-from canvas_tools import get_setting, courses
+from canvas_tools import get_setting, get_courses, load_settings
 from canvas_tools import from_canvas_date, to_canvas_date
 from canvas_tools import yaml_load
 
@@ -232,9 +232,10 @@ def import_dates(course, filename):
                         open_date=override.get('unlock_at', 'None')))
     
 if __name__ == "__main__":
+    load_settings()
     parser = argparse.ArgumentParser(description='Manage dates for a canvas course')
     parser.add_argument('command', choices=['export', 'import', 'override', 'dst'],
-                        help='Export will store the dates in a CSV, import will load them, and override will give extensions to individual students. DST will adjust all dates to be one hour greater or lesser depending on DST.')
+                        help="Export will create a CSV file with the assignments (but without any dates). Import will load the relevant CSV file back into Canvas after you've filled the dates in. Override will give extensions to individual students. DST will adjust all dates to be one hour greater or lesser depending on DST.")
     parser.add_argument('--course', '-c', help='The specific course to perform operations on. Should be a valid course label, not the ID')
     parser.add_argument('--file', '-f', help='The path to a file. Otherwise, a default filename will be chosen based on the course name (For a course named CS1014, generate "dates/CS1014_dates.csv").', default=None)
     #parser.add_argument('--extensions', '-e', help='Include extensions for students (overrides).', action='store_true')
@@ -245,7 +246,7 @@ if __name__ == "__main__":
     # Override default course
     if args.course:
         course = args.course
-        if course not in courses:
+        if course not in get_courses():
             raise Exception("Unknown course name: {}".format(course))
     else:
         course = get_setting('course')
