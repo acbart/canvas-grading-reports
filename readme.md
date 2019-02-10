@@ -1,11 +1,14 @@
 # manage-canvas
-A set of command line utilities for controlling canvas courses.
 
-Be careful using these, as some can damage the course.
+A set of command line utilities for controlling canvas courses.
 
 # Requirements
 
-Make sure you pip install the requirements.txt file!
+Make sure you pip install the requirements.txt file
+
+> pip install -r requirements.txt
+
+This is for Python 3.
 
 # Create Settings
 
